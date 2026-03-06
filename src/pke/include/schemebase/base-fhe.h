@@ -130,6 +130,15 @@ public:
         OPENFHE_THROW("EvalBootstrap is not implemented for this scheme");
     }
 
+    virtual void EvalFEFuncBootstrapSetup(const CryptoContextImpl<DCRTPoly>& cc, std::vector<uint32_t> levelBudget,
+        std::vector<uint32_t> dim1, uint32_t numSlots) {
+        OPENFHE_THROW("Not supported");
+    }
+
+    virtual Ciphertext<Element> EvalFEFuncBootstrap(ConstCiphertext<Element> ciphertext, std::vector<std::complex<double>> coefficients) const {
+        OPENFHE_THROW("EvalFEFuncBootstrap is not implemented for this scheme");
+    }   
+
     virtual void EvalFBTSetup(const CryptoContextImpl<Element>& cc, const std::vector<std::complex<double>>& coeffs,
                               uint32_t numSlots, const BigInteger& PIn, const BigInteger& POut, const BigInteger& Bigq,
                               const PublicKey<DCRTPoly>& pubKey, const std::vector<uint32_t>& dim1,

@@ -502,27 +502,39 @@ Ciphertext<Element> CryptoContextImpl<Element>::EvalChebyshevFunction(std::funct
 }
 
 template <typename Element>
+Ciphertext<Element> CryptoContextImpl<Element>::EvalChebyshevFunction(std::function<std::complex<double>(double)> func,
+                                                                      ConstCiphertext<Element>& ciphertext, double a,
+                                                                      double b, uint32_t degree) const {
+    std::vector<std::complex<double>> coefficients = EvalChebyshevCoefficients(func, a, b, degree);
+    return EvalChebyshevSeries(ciphertext, coefficients, a, b);
+}
+
+template <typename Element>
 Ciphertext<Element> CryptoContextImpl<Element>::EvalSin(ConstCiphertext<Element>& ciphertext, double a, double b,
                                                         uint32_t degree) const {
-    return EvalChebyshevFunction([](double x) -> double { return std::sin(x); }, ciphertext, a, b, degree);
+    std::function<double(double)> func = [](double x) -> double { return std::sin(x); };
+    return EvalChebyshevFunction(func, ciphertext, a, b, degree);
 }
 
 template <typename Element>
 Ciphertext<Element> CryptoContextImpl<Element>::EvalCos(ConstCiphertext<Element>& ciphertext, double a, double b,
                                                         uint32_t degree) const {
-    return EvalChebyshevFunction([](double x) -> double { return std::cos(x); }, ciphertext, a, b, degree);
+    std::function<double(double)> func = [](double x) -> double { return std::cos(x); };
+    return EvalChebyshevFunction(func, ciphertext, a, b, degree);
 }
 
 template <typename Element>
 Ciphertext<Element> CryptoContextImpl<Element>::EvalLogistic(ConstCiphertext<Element>& ciphertext, double a, double b,
                                                              uint32_t degree) const {
-    return EvalChebyshevFunction([](double x) -> double { return 1 / (1 + std::exp(-x)); }, ciphertext, a, b, degree);
+    std::function<double(double)> func = [](double x) -> double { return 1 / (1 + std::exp(-x)); };
+    return EvalChebyshevFunction(func, ciphertext, a, b, degree);
 }
 
 template <typename Element>
 Ciphertext<Element> CryptoContextImpl<Element>::EvalDivide(ConstCiphertext<Element>& ciphertext, double a, double b,
                                                            uint32_t degree) const {
-    return EvalChebyshevFunction([](double x) -> double { return 1 / x; }, ciphertext, a, b, degree);
+    std::function<double(double)> func = [](double x) -> double { return 1 / x; };
+    return EvalChebyshevFunction(func, ciphertext, a, b, degree);
 }
 
 }  // namespace lbcrypto

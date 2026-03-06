@@ -200,6 +200,20 @@ public:
         return encodingParams->GetPlaintextModulus() - m_logError;
     }
 
+    double GetOutputPrecision(std::vector<double> target) const override{
+        if (target.empty() || target.size() != value.size()) {
+            OPENFHE_THROW("Size mismatch in GetOutputPrecision. Target size: " + std::to_string(target.size()) +
+                           ", value size: " + std::to_string(value.size()));
+        }
+        auto [min_it, max_it] = std::minmax_element(target.begin(), target.end());
+        double sum = 0.0, range = *max_it - *min_it;
+        if (range < 1e-15) range = 1.0;
+        for (size_t i = 0; i < target.size(); ++i) {
+            sum += std::abs(target[i] - value[i]);
+        }
+        double mae = sum / static_cast<double>(target.size());
+        return -std::log2(mae / range);
+    }
     /**
    * SetLength of the plaintext to the given size
    * @param siz

@@ -17,6 +17,7 @@ set(CORE_VERSION ${CORE_VERSION_MAJOR}.${CORE_VERSION_MINOR}.${CORE_VERSION_PATC
 
 add_library(coreobj OBJECT ${CORE_SRC_FILES})
 add_dependencies(coreobj third-party)
+target_link_libraries(coreobj PUBLIC pybind11::embed)
 
 set_property(TARGET coreobj PROPERTY POSITION_INDEPENDENT_CODE 1)
 

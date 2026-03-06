@@ -133,7 +133,7 @@ set(CMAKE_SKIP_BUILD_RPATH FALSE)
 # when building, don't use the install RPATH already
 # (but later on when installing)
 set(CMAKE_BUILD_WITH_INSTALL_RPATH FALSE)
-
+# set(WITH_OPENMP OFF)
 set(CMAKE_INSTALL_RPATH "${LIBINSTALL}")
 
 # add the automatically determined parts of the RPATH
@@ -147,8 +147,8 @@ if("${isSystemDir}" STREQUAL "-1")
 endif("${isSystemDir}" STREQUAL "-1")
 
 # Compiler flags
-set(C_COMPILE_FLAGS "-Wall -Werror -DOPENFHE_VERSION=${OPENFHE_VERSION}")
-set(CXX_COMPILE_FLAGS "-Wall -Werror -DOPENFHE_VERSION=${OPENFHE_VERSION}")
+set(C_COMPILE_FLAGS "-Wall -Wno-error=unused-variable -O3 ${NATIVE_OPT} -DOPENFHE_VERSION=${OPENFHE_VERSION}")
+set(CXX_COMPILE_FLAGS "-Wall -Wno-error=unused-variable -O3 ${NATIVE_OPT} -DOPENFHE_VERSION=${OPENFHE_VERSION} ${IGNORE_WARNINGS}")
 if(WITH_NATIVEOPT)
     string(APPEND C_COMPILE_FLAGS " -march=native")
     string(APPEND CXX_COMPILE_FLAGS " -march=native")
@@ -692,6 +692,14 @@ endif()
 add_subdirectory(src/core)
 add_subdirectory(src/pke)
 add_subdirectory(src/binfhe)
+set(PYTHON_EXECUTABLE "/usr/bin/python" CACHE PATH "Python executable")
+add_compile_definitions(PROJECT_SOURCE_DIR_MACRO="${PROJECT_SOURCE_DIR}")
+find_package(Python3 COMPONENTS Interpreter Development REQUIRED)
+add_subdirectory(third-party/pybind11)
+target_link_libraries(OPENFHEcore pybind11::embed)
+target_link_libraries(OPENFHEpke PUBLIC pybind11::embed)
+target_link_libraries(OPENFHEbinfhe PUBLIC pybind11::embed)
+
 
 ### build the google test handlers
 if(BUILD_UNITTESTS)

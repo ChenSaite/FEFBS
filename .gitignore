@@ -15,7 +15,8 @@ doxyoutput/
 
 
 .ipynb_checkpoints
-
+__pycache__/
+*.pyc
 test/build
 test/bin
 output.txt
@@ -29,6 +30,10 @@ third-party/include/NTL
 third-party/include/gmp.h
 third-party/lib
 third-party/share
+third-party/*/build/
+third-party/*/CmakeFiles/
+third-party/*/CMakeCache.txt
+third-party/*/Makefile
 **/gmp-*
 **/ntl-*
 timing/
@@ -66,6 +71,8 @@ src/circuit/lib/*.hh
 # vagrant output
 .vagrant/
 *.log
+*.tmp
+*.bak
 
 # gtest output files
 test_detail.xml

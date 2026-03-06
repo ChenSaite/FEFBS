@@ -358,6 +358,10 @@ public:
         OPENFHE_THROW("no estimate of precision available for the current scheme");
     }
 
+    virtual double GetOutputPrecision(std::vector<double> target) const {
+        OPENFHE_THROW("no output of precision available for the current scheme");
+    }
+
     virtual const std::string& GetStringValue() const {
         OPENFHE_THROW("not a string");
     }

@@ -39,6 +39,7 @@
 #include <cstdint>
 #include <functional>
 #include <vector>
+#include <complex>
 
 /**
  * @namespace lbcrypto
@@ -73,6 +74,9 @@ std::vector<double> EvalChebyshevCoefficients(std::function<double(double)> f, d
  * @param degree is the desired degree of approximation
  * @return Evaluation of the approximated function over the plaintexts.
  */
+
+std::vector<std::complex<double>> EvalChebyshevCoefficients(std::function<std::complex<double>(double)> func, double a, double b, uint32_t degree);
+
 std::vector<double> EvalChebyshevFunctionPtxt(std::function<double(double)> f, const std::vector<double>& ptxt,
                                               double a, double b, size_t d);
 

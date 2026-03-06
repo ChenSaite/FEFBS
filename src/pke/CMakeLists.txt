@@ -72,7 +72,7 @@ endif()
 
 set(PKEAPPS "")
 if(BUILD_EXAMPLES)
-    file(GLOB PKE_EXAMPLES_SRC_FILES CONFIGURE_DEPENDS examples/*.cpp)
+    file(GLOB_RECURSE PKE_EXAMPLES_SRC_FILES CONFIGURE_DEPENDS examples/*.cpp)
     foreach(app ${PKE_EXAMPLES_SRC_FILES})
         get_filename_component(exe ${app} NAME_WE)
         if(${exe} STREQUAL "scheme-switching-serial")

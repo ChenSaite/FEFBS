@@ -69,7 +69,7 @@ void SimpleBootstrapExample() {
     * you do not need to set the ring dimension.
     */
     parameters.SetSecurityLevel(HEStd_NotSet);
-    parameters.SetRingDim(1 << 12);
+    parameters.SetRingDim(1 << 16);
 
     /*  A3) Scaling parameters.
     * By default, we set the modulus sizes and rescaling technique to the following values
@@ -103,7 +103,7 @@ void SimpleBootstrapExample() {
     // will be levelsAvailableAfterBootstrap - 1 because an additional level
     // is used for scaling the ciphertext before next bootstrapping (in 64-bit CKKS bootstrapping)
     uint32_t levelsAvailableAfterBootstrap = 10;
-    usint depth = levelsAvailableAfterBootstrap + FHECKKSRNS::GetBootstrapDepth(levelBudget, secretKeyDist);
+    usint depth = 26;//levelsAvailableAfterBootstrap + FHECKKSRNS::GetBootstrapDepth(levelBudget, secretKeyDist);
     parameters.SetMultiplicativeDepth(depth);
 
     CryptoContext<DCRTPoly> cryptoContext = GenCryptoContext(parameters);
@@ -140,14 +140,18 @@ void SimpleBootstrapExample() {
 
     // Perform the bootstrapping operation. The goal is to increase the number of levels remaining
     // for HE computation.
-    auto ciphertextAfter = cryptoContext->EvalBootstrap(ciph);
+    auto start = std::chrono::high_resolution_clock::now();
+    for(int i = 0; i < 100; i++)
+    {auto ciphertextAfter = cryptoContext->EvalBootstrap(ciph);}
+    auto end = std::chrono::high_resolution_clock::now();
+    std::chrono::duration<double, std::milli> elapsed = end - start;
+    std::cout << "Average bootstrapping time over 100 runs: " << elapsed.count()/100 << " ms" << std::endl;
+    // std::cout << "Number of levels remaining after bootstrapping: "
+    //           << depth - ciphertextAfter->GetLevel() - (ciphertextAfter->GetNoiseScaleDeg() - 1) << std::endl
+    //           << std::endl;
 
-    std::cout << "Number of levels remaining after bootstrapping: "
-              << depth - ciphertextAfter->GetLevel() - (ciphertextAfter->GetNoiseScaleDeg() - 1) << std::endl
-              << std::endl;
-
-    Plaintext result;
-    cryptoContext->Decrypt(keyPair.secretKey, ciphertextAfter, &result);
-    result->SetLength(encodedLength);
-    std::cout << "Output after bootstrapping \n\t" << result << std::endl;
+    // Plaintext result;
+    // cryptoContext->Decrypt(keyPair.secretKey, ciphertextAfter, &result);
+    // result->SetLength(encodedLength);
+    // std::cout << "Output after bootstrapping \n\t" << result << std::endl;
 }

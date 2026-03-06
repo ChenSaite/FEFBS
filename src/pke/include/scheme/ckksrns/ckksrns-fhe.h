@@ -156,7 +156,13 @@ public:
 
     Ciphertext<DCRTPoly> EvalBootstrap(ConstCiphertext<DCRTPoly>& ciphertext, uint32_t numIterations,
                                        uint32_t precision) const override;
+    
+    
+    void EvalFEFuncBootstrapSetup(const CryptoContextImpl<DCRTPoly>& cc, std::vector<uint32_t> levelBudget,
+                                        std::vector<uint32_t> dim1, uint32_t numSlots) override;
 
+    Ciphertext<DCRTPoly> EvalFEFuncBootstrap(ConstCiphertext<DCRTPoly> ciphertext, std::vector<std::complex<double>> coefficients) const override;
+    
     void EvalFBTSetup(const CryptoContextImpl<DCRTPoly>& cc, const std::vector<std::complex<double>>& coefficients,
                       uint32_t numSlots, const BigInteger& PIn, const BigInteger& POut, const BigInteger& Bigq,
                       const PublicKey<DCRTPoly>& pubKey, const std::vector<uint32_t>& dim1,
@@ -399,6 +405,7 @@ private:
     // TODO: unify this
     static constexpr uint32_t K_SPARSE     = 28;
     static constexpr uint32_t K_SPARSE_ALT = 25;
+    const uint32_t K_FUNC = 16;
     // corresponds to probability of less than 2^{-128}
     static constexpr uint32_t K_SPARSE_ENCAPSULATED = 16;
 
@@ -411,6 +418,7 @@ private:
     // number of double-angle iterations in CKKS bootstrapping. Must be static because it is used in a static function.
     // same value is used for both SPARSE and ENCAPSULATED_SPARSE
     static constexpr uint32_t R_SPARSE = 3;
+    static const uint32_t R_FUNC = 4;
 
     // TODO: regenerate these as hexfloat
 

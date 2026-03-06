@@ -2882,6 +2882,9 @@ public:
     */
     Ciphertext<Element> EvalChebyshevFunction(std::function<double(double)> func, ConstCiphertext<Element>& ciphertext,
                                               double a, double b, uint32_t degree) const;
+                                              
+    Ciphertext<Element> EvalChebyshevFunction(std::function<std::complex<double>(double)> func, ConstCiphertext<Element>& ciphertext,
+                                              double a, double b, uint32_t degree) const;
 
     /**
     * @brief Evaluates an approximate sine function on a ciphertext using Chebyshev approximation.
@@ -3536,6 +3539,7 @@ public:
                             uint32_t slots = 0, uint32_t correctionFactor = 0, bool precompute = true) {
         GetScheme()->EvalBootstrapSetup(*this, levelBudget, dim1, slots, correctionFactor, precompute);
     }
+
     /**
     * @brief Generates automorphism keys for EvalBootstrap. Uses baby-step/giant-step strategy. Supported only in CKKS.
     *
@@ -3570,6 +3574,15 @@ public:
         return GetScheme()->EvalBootstrap(ciphertext, numIterations, precision);
     }
 
+    void EvalFEFuncBootstrapSetup(std::vector<uint32_t> levelBudget = {5, 4}, std::vector<uint32_t> dim1 = {0, 0},
+        uint32_t slots = 0) {
+        GetScheme()->EvalFEFuncBootstrapSetup(*this, levelBudget, dim1, slots);
+    }
+
+    Ciphertext<Element> EvalFEFuncBootstrap(ConstCiphertext<Element> ciphertext, std::vector<std::complex<double>> coefficients) const {
+        return GetScheme()->EvalFEFuncBootstrap(ciphertext, coefficients);
+    }
+    
     template <typename VectorDataType>
     void EvalFBTSetup(const std::vector<VectorDataType>& coeffs, uint32_t numSlots, const BigInteger& PIn,
                       const BigInteger& POut, const BigInteger& Bigq, const PublicKey<DCRTPoly>& pubKey,
