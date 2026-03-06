@@ -1,5 +1,5 @@
 # High-Precision Functional Bootstrapping for CKKS from Fourier Extension
-This repository contains the implementation of the paper ["High-Precision Functional Bootstrapping for CKKS from Fourier Extension"](https://eprint.iacr.org/2026/367), built on the [OpenFHE]("https://github.com/openfheorg/openfhe-development") library.
+This repository contains the implementation of the paper ["High-Precision Functional Bootstrapping for CKKS from Fourier Extension"](https://eprint.iacr.org/2026/367), built on the [OpenFHE](https://github.com/openfheorg/openfhe-development) library.
 
 ## Installation
 ### System Requirements
@@ -18,7 +18,7 @@ make -j
 ```
 
 ## Homomorphic Encryption Benchmarking
-The source code for the test experiments is located in `src/pke/examples/FEFBS/`, which includes test files various benchmarking examples. (e.g. $\mathrm{gelu}(x)$, $\exp(x)$) 
+The source code for the test experiments is located in `src/pke/examples/FEFBS/`, which includes test files various benchmarking examples. (e.g. GeLU(x), exp(x)) 
 
 After a successful build, the corresponding executable binaries are generated in the `build/bin/examples/pke/` directory.
 
@@ -29,14 +29,14 @@ Our framework invokes `fourier_calculator.py` at runtime to calculate Fourier co
 To run a test with online generation (e.g., the exp function):
 ```bash
 # Replace [script_path] with the directory of fourier_calculator.py
-PYTHONPATH=[script_path] ./build/bin/examples/pke/exp_example
+PYTHONPATH=[script_path] ./build/bin/examples/pke/exp_test
 ```
 
 ### 2. Using Pre-computed Coefficients
 You can bypass the coefficients generation by providing the coefficient file path using the -f flag:
 ```bash
 # Example: Running GeLU with pre-computed coefficients
-./build/bin/examples/pke/gelu_test -f ../coeffs/gelu_coeffs.txt
+./bin/examples/pke/gelu_test -f ../coeffs/gelucoeff.txt
 ```
 
 ## Plaintext Prototype
