@@ -11,16 +11,16 @@ namespace lbcrypto {
     inline std::vector<std::complex<double>> LoadCoeffs(const std::string& filename) {
         std::ifstream file(filename);
         if (!file.is_open()) {
-            OPENFHE_THROW(config_error, "Cannot open coefficient file: " + filename);
+            OPENFHE_THROW("Cannot open coefficient file: " + filename);
         }
         size_t numCoeffs = 0;
         if (!(file >> numCoeffs)) {
-            OPENFHE_THROW(config_error, "Failed to read the number of coefficients from: " + filename);
+            OPENFHE_THROW("Failed to read the number of coefficients from: " + filename);
         }
         std::vector<std::complex<double>> coeffs(numCoeffs + 1);    
         std::cout << numCoeffs + 1 << " coefficients will be loaded from the file." << std::endl;
         double real, imag;
-        for (int i = 0; i <= numCoeffs; i++) {
+        for (size_t i = 0; i <= numCoeffs; i++) {
             file >> real >> imag;
             coeffs[i] = std::complex<double>(real, imag);
         }
@@ -101,8 +101,8 @@ namespace lbcrypto {
         auto ctxtResult = cc->EvalFEFuncBootstrap(ctxt, coeffspython);
         end             = std::chrono::system_clock::now();
         printf("Level after bootstrapping: %u\n", (uint32_t)(depth - ctxtResult->GetLevel()));
-        printf("Total time: %d ms\n", std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count());
-        printf("Slots amortize time: %.6lf ms\n", std::chrono::duration_cast<std::chrono::milliseconds>(end - start) / (double)x.size());
+        printf("Total time: %ld ms\n", std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count());
+        printf("Slots amortize time: %.6lf ms\n", (std::chrono::duration_cast<std::chrono::milliseconds>(end - start) / (double)x.size()).count());
         
         Plaintext result;
         cc->Decrypt(keyPair.secretKey, ctxtResult, &result);
@@ -110,15 +110,15 @@ namespace lbcrypto {
         std::vector<double> resultvec = result->GetRealPackedValue();
 
         printf("\n--- Sample Points Inspection (Total %d points) ---\n", numSamples);
-        for (size_t i = 0; i < numSamples; i++) {
+        for (int i = 0; i < numSamples; i++) {
             printf("%.10lf ", x[i * numSlots / numSamples]);
         }
         printf("\n----------- Expected Function Values: -----------\n");
-        for (size_t i = 0; i < numSamples; i++) {
+        for (int i = 0; i < numSamples; i++) {
             printf("%.10lf ", y[i * numSlots / numSamples]);
         }
         printf("\n------- Functional Bootstrapping Results: -------\n");
-        for (size_t i = 0; i < numSamples; i++) {
+        for (int i = 0; i < numSamples; i++) {
             printf("%.10lf ", resultvec[i * numSlots / numSamples]);
         }
         puts("\n--------------------------------------------------");

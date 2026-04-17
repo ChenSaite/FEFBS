@@ -9,7 +9,7 @@ namespace py = pybind11;
 
 namespace lbcrypto {
 
-struct FourierCalculator::Impl {
+struct __attribute__((visibility("hidden"))) FourierCalculator::Impl {
     py::object calc_func_;
 
     Impl() {

@@ -102,7 +102,7 @@ void SimpleBootstrapExample() {
     // Note that the actual number of levels avalailable after bootstrapping before next bootstrapping 
     // will be levelsAvailableAfterBootstrap - 1 because an additional level
     // is used for scaling the ciphertext before next bootstrapping (in 64-bit CKKS bootstrapping)
-    uint32_t levelsAvailableAfterBootstrap = 10;
+    // uint32_t levelsAvailableAfterBootstrap = 10;
     usint depth = 26;//levelsAvailableAfterBootstrap + FHECKKSRNS::GetBootstrapDepth(levelBudget, secretKeyDist);
     parameters.SetMultiplicativeDepth(depth);
 

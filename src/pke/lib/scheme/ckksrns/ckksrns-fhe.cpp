@@ -1067,7 +1067,7 @@ Ciphertext<DCRTPoly> FHECKKSRNS::EvalFEFuncBootstrap(ConstCiphertext<DCRTPoly> c
     // Running EvalSeries
     //------------------------------------------------------------------------------
     auto a0 = coefficients[0].real();
-    coefficients[0] = (0.0, 0.0);
+    coefficients[0] = {0.0, 0.0};
     auto ctxtSeries = cc->EvalPoly(ctxtExp, coefficients); 
     auto ctxtSeries_conj = Conjugate(ctxtSeries, evalKeyMap);
     auto result = cc->EvalAdd(ctxtSeries, ctxtSeries_conj);     
