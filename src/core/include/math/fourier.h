@@ -5,6 +5,7 @@
 #include <complex>
 #include <string>
 #include <memory>
+#include <cstdint>
 
 namespace lbcrypto {
 class FourierCalculator {

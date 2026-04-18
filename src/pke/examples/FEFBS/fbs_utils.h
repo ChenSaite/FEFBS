@@ -6,6 +6,21 @@
 #include <chrono>
 #include <string>
 #include <complex>
+#include <csignal>
+#include <unistd.h> 
+
+void sigsegv_handler(int sig) {
+    const char* msg =
+        "\n[FATAL ERROR] Segmentation fault occurred.\n"
+        "Possible causes:\n"
+        "1. Python is not installed.\n"
+        "2. Dependencies (sympy, numpy) are missing. Please install them via pip:\n"
+        "   pip install numpy sympy\n"
+        "3. PYTHONPATH is not set correctly to find fourier_calculator.py. Please ensure your command includes PYTHONPATH and points to the project root.\n";
+    ssize_t _ = write(STDERR_FILENO, msg, strlen(msg));
+    (void)_;
+    _exit(1); 
+}
 
 namespace lbcrypto {
     inline std::vector<std::complex<double>> LoadCoeffs(const std::string& filename) {
@@ -28,7 +43,7 @@ namespace lbcrypto {
     }
 
     void FuncBootstrapExample(std::string func, double lower_bound, double upper_bound, int N, int speed,
-                          std::function<double(double)> target, std::string filename) {
+                          std::function<double(double)> target, std::string filename, size_t slots_num) {
         auto ringDim = 1 << 16;
         CCParams<CryptoContextCKKSRNS> parameters;
         CKKSDataType ckksDataType = COMPLEX;
@@ -37,7 +52,7 @@ namespace lbcrypto {
         ScalingTechnique rescaleTech      = FLEXIBLEAUTO;
         usint dcrtBits                    = 59;
         usint firstMod                    = 60;
-        size_t numSlots                   = ringDim / 2;
+        size_t numSlots                   = slots_num;
         std::vector<uint32_t> levelBudget = {3, 2};
         std::vector<uint32_t> bsgsDim     = {0, 0};
         usint depth                       = levelBudget[0] + levelBudget[1] + 12 + 9;
@@ -78,7 +93,7 @@ namespace lbcrypto {
             puts("\n[Pre-computation] Generating Fourier series coefficients for the target function...");
             FourierCalculator fourierCalc;
             coeffspython = fourierCalc.calculate(func, lower_bound, upper_bound, N, speed);
-            puts("[Pre-computation] Done. ");    
+            puts("[Pre-computation] Done. ");
         }
         for (size_t i = 0; i < numSlots; i++) {
             x[i] = left + static_cast<double>(i) * (mid - left) / static_cast<double>(numSlots);

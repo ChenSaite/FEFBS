@@ -1,5 +1,6 @@
 from sympy import *
 import numpy as np
+import argparse
 
 def calculate_fourier_coefficients(func_str: str, lower_bound: float, upper_bound: float, degree: int):
     def find_ke(func_str: str, lower_bound: float, upper_bound: float, degree: int, speed: int):
@@ -113,9 +114,21 @@ def calculate_fourier_coefficients(func_str: str, lower_bound: float, upper_boun
     return kstar, max_pre, [complex(an, -bn) for an, bn in zip(ret_an, ret_bn)]
 
 if __name__ == "__main__":
-    fstr = "x" # Boot function
-    left, right = -1, 1 # evaluation interval
-    N = 40 # degree of Fourier series
-    speed, max_pre, coeffs = calculate_fourier_coefficients(fstr, left, right, N)
+    parser = argparse.ArgumentParser(description="Fourier Extension Parameter Search Tool")
+    
+    parser.add_argument("--func", type=str, default="x", 
+                        help='Target function string (default: "x")')
+    parser.add_argument("--left", type=float, default=-1.0, 
+                        help="Left bound of the evaluation interval (default: -1.0)")
+    parser.add_argument("--right", type=float, default=1.0, 
+                        help="Right bound of the evaluation interval (default: 1.0)")
+    parser.add_argument("--degree", type=int, default=40, 
+                        help="Degree of the Fourier series (default: 40)")
+
+    args = parser.parse_args()
+    speed, max_pre, coeffs = calculate_fourier_coefficients(
+        args.func, args.left, args.right, args.degree
+    )
+    speed, max_pre, coeffs = calculate_fourier_coefficients(args.func, args.left, args.right, args.degree)
     print(f"ke: {speed}, Precision: {max_pre:.4f} bits")
     print("Fourier Coefficients (a_n, b_n):", coeffs)
