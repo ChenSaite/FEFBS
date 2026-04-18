@@ -42,14 +42,15 @@ You can bypass the coefficients generation by providing the coefficient file pat
 ## Plaintext Prototype
 We provide a Python-based plaintext simulation tool in the project root directory: `fourier_extension.py`, which is used to prototype the Fourier Extension algorithm and find efficient parameters before running the homomorphic version.
 
-### Examples & Usages
-You can modify the configuration in the `if __name__ == "__main__":` block of `fourier_extension.py`:
+### Usage & Configuration
+The Parameters of the function can be provided directly via command-line arguments:
 
-- Function: Update `fstr` (e.g., `"x"`, `"exp(x)"`).
-- Interval: Adjust `left` and `right`.
-- Degree: Change `N` to the desired Fourier series order.
+- `--func`: Target function string (e.g., `"x"`, `"exp(x)"`).
+- `--left` / `--right`: Evaluation interval $[a, b]$.
+- `--degree`: Truncation degree $n$ of the Fourier series.
 
-Run the script directly:
+### Examples
+1. Run with default parameters ($f(x)=x,x\in[-1,1],n=40$):
 ```bash
 python fourier_extension.py
 ```
@@ -57,4 +58,8 @@ The script will output the recommended smoothness parameter, the estimated bit p
 ```bash
 ke: 33, Precision: 50.5166 bits
 Fourier Coefficients (a_n, b_n): [(-3.885780586188048e-18+0j), (-1.8041124150158794e-18-0.625001603545843j), ....]
+```
+2. Evaluate a custom function with specific parameters, like $f(x)=e^x, x\in[-2,2],n=20$:
+```bash
+python fourier_extension.py --func "exp(x)" --left -2 --right 2 --degree 20
 ```

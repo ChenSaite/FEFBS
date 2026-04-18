@@ -118,9 +118,9 @@ if __name__ == "__main__":
     
     parser.add_argument("--func", type=str, default="x", 
                         help='Target function string (default: "x")')
-    parser.add_argument("--left", type=float, default=-1.0, 
+    parser.add_argument("--left", type=Rational, default=Rational(-1), 
                         help="Left bound of the evaluation interval (default: -1.0)")
-    parser.add_argument("--right", type=float, default=1.0, 
+    parser.add_argument("--right", type=Rational, default=Rational(1), 
                         help="Right bound of the evaluation interval (default: 1.0)")
     parser.add_argument("--degree", type=int, default=40, 
                         help="Degree of the Fourier series (default: 40)")
