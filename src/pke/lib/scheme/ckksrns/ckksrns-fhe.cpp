@@ -1322,6 +1322,67 @@ std::vector<ReadOnlyPlaintext> FHECKKSRNS::EvalLinearTransformPrecompute(
     return result;
 }
 
+std::vector<ReadOnlyPlaintext> FHECKKSRNS::EvalLinearTransformPrecomputeSparse(
+    const CryptoContextImpl<DCRTPoly>& cc,
+    const std::vector<std::vector<std::complex<double>>>& diagonals,
+    const std::vector<int32_t>& diagonalIndices, uint32_t dim1, double scale,
+    uint32_t L) const {
+    if (diagonals.size() != diagonalIndices.size())
+        OPENFHE_THROW("The sparse diagonals passed to EvalLinearTransformPrecomputeSparse do not match the diagonal index list");
+    if (diagonals.empty())
+        OPENFHE_THROW("EvalLinearTransformPrecomputeSparse requires at least one non-zero diagonal");
+
+    uint32_t slots = diagonals[0].size();
+    for (const auto& diag : diagonals) {
+        if (diag.size() != slots)
+            OPENFHE_THROW("All sparse diagonals passed to EvalLinearTransformPrecomputeSparse must have the same length");
+    }
+
+    const auto cryptoParams = std::dynamic_pointer_cast<CryptoParametersCKKSRNS>(cc.GetCryptoParameters());
+    uint32_t compositeDegree = cryptoParams->GetCompositeDegree();
+    auto elementParams = *(cryptoParams->GetElementParams());
+
+    uint32_t towersToDrop = (L == 0) ? 0 : elementParams.GetParams().size() - L - compositeDegree;
+    for (uint32_t i = 0; i < towersToDrop; ++i)
+        elementParams.PopLastParam();
+
+    auto paramsQ   = elementParams.GetParams();
+    uint32_t sizeQ = paramsQ.size();
+    auto paramsP   = cryptoParams->GetParamsP()->GetParams();
+    uint32_t sizeP = paramsP.size();
+    std::vector<NativeInteger> moduli(sizeQ + sizeP);
+    std::vector<NativeInteger> roots(sizeQ + sizeP);
+    for (uint32_t i = 0; i < sizeQ; ++i) {
+        moduli[i] = paramsQ[i]->GetModulus();
+        roots[i]  = paramsQ[i]->GetRootOfUnity();
+    }
+    for (uint32_t i = 0; i < sizeP; ++i) {
+        moduli[sizeQ + i] = paramsP[i]->GetModulus();
+        roots[sizeQ + i]  = paramsP[i]->GetRootOfUnity();
+    }
+    auto elementParamsPtr = std::make_shared<ILDCRTParams<DCRTPoly::Integer>>(cc.GetCyclotomicOrder(), moduli, roots);
+
+    uint32_t bStep = (dim1 == 0) ? static_cast<uint32_t>(std::ceil(std::sqrt(slots))) : dim1;
+    std::vector<ReadOnlyPlaintext> result(diagonals.size());
+
+#if !defined(__MINGW32__) && !defined(__MINGW64__)
+    #pragma omp parallel for
+#endif
+    for (int32_t position = 0; position < static_cast<int32_t>(diagonals.size()); ++position) {
+        uint32_t rot = ReduceRotation(diagonalIndices[position], slots);
+        uint32_t giant = ((rot / bStep) * bStep) % slots;
+        auto diag = diagonals[position];
+        for (uint32_t k = 0; k < diag.size(); ++k)
+            diag[k] *= scale;
+
+        result[position] =
+            MakeAuxPlaintext(cc, elementParamsPtr, Rotate(diag, -static_cast<int32_t>(giant)), 1, towersToDrop,
+                             diag.size());
+    }
+
+    return result;
+}
+
 std::vector<ReadOnlyPlaintext> FHECKKSRNS::EvalLinearTransformPrecompute(
     const CryptoContextImpl<DCRTPoly>& cc, const std::vector<std::vector<std::complex<double>>>& A,
     const std::vector<std::vector<std::complex<double>>>& B, uint32_t orientation, double scale, uint32_t L) const {
@@ -1818,6 +1879,107 @@ Ciphertext<DCRTPoly> FHECKKSRNS::EvalLinearTransform(const std::vector<ReadOnlyP
     }
     result = cc->KeySwitchDown(result);
     result->GetElements()[0] += first;
+    return result;
+}
+
+Ciphertext<DCRTPoly> FHECKKSRNS::EvalLinearTransformSparse(
+    const std::vector<ReadOnlyPlaintext>& A, ConstCiphertext<DCRTPoly>& ct,
+    const std::vector<int32_t>& diagonalIndices, uint32_t dim1) const {
+    if (A.size() != diagonalIndices.size())
+        OPENFHE_THROW("EvalLinearTransformSparse requires matching plaintext and diagonal-index counts");
+    if (A.empty())
+        OPENFHE_THROW("EvalLinearTransformSparse requires at least one non-zero diagonal");
+
+    auto cc    = ct->GetCryptoContext();
+    uint32_t M = cc->GetCyclotomicOrder();
+    uint32_t N = cc->GetRingDimension();
+    uint32_t slots = ct->GetSlots();
+    uint32_t bStep = (dim1 == 0) ? static_cast<uint32_t>(std::ceil(std::sqrt(slots))) : dim1;
+
+    auto digits = cc->EvalFastRotationPrecompute(ct);
+    auto baseExt = cc->KeySwitchExt(ct, true);
+
+    std::map<uint32_t, Ciphertext<DCRTPoly>> fastRotation;
+    fastRotation.emplace(0, baseExt);
+    for (size_t position = 0; position < diagonalIndices.size(); ++position) {
+        uint32_t rot = ReduceRotation(diagonalIndices[position], slots);
+        uint32_t baby = rot & (bStep - 1);
+        if (baby != 0 && fastRotation.find(baby) == fastRotation.end())
+            fastRotation.emplace(baby, cc->EvalFastRotationExt(ct, baby, digits, true));
+    }
+
+    std::map<uint32_t, std::vector<size_t>> giantToPositions;
+    for (size_t position = 0; position < diagonalIndices.size(); ++position) {
+        uint32_t rot = ReduceRotation(diagonalIndices[position], slots);
+        uint32_t giant = ((rot / bStep) * bStep) % slots;
+        giantToPositions[giant].push_back(position);
+    }
+
+    Ciphertext<DCRTPoly> result;
+    DCRTPoly first;
+    bool resultInitialized = false;
+    bool firstInitialized = false;
+
+    for (const auto& [giant, positions] : giantToPositions) {
+        Ciphertext<DCRTPoly> inner;
+        bool innerInitialized = false;
+        for (size_t position : positions) {
+            uint32_t rot = ReduceRotation(diagonalIndices[position], slots);
+            uint32_t baby = rot & (bStep - 1);
+            auto product = EvalMultExt(fastRotation.at(baby), A[position]);
+            if (!innerInitialized) {
+                inner = std::move(product);
+                innerInitialized = true;
+            }
+            else {
+                EvalAddExtInPlace(inner, product);
+            }
+        }
+
+        if (giant == 0) {
+            auto firstTerm = cc->KeySwitchDownFirstElement(inner);
+            if (!firstInitialized) {
+                first = firstTerm;
+                firstInitialized = true;
+            }
+            else {
+                first += firstTerm;
+            }
+
+            auto elements = inner->GetElements();
+            elements[0].SetValuesToZero();
+            inner->SetElements(std::move(elements));
+        }
+        else {
+            auto innerDown = cc->KeySwitchDown(inner);
+            uint32_t autoIndex = FindAutomorphismIndex2nComplex(giant, M);
+            std::vector<uint32_t> map(N);
+            PrecomputeAutoMap(N, autoIndex, &map);
+            auto firstTerm = innerDown->GetElements()[0].AutomorphismTransform(autoIndex, map);
+            if (!firstInitialized) {
+                first = firstTerm;
+                firstInitialized = true;
+            }
+            else {
+                first += firstTerm;
+            }
+
+            auto innerDigits = cc->EvalFastRotationPrecompute(innerDown);
+            inner = cc->EvalFastRotationExt(innerDown, giant, innerDigits, false);
+        }
+
+        if (!resultInitialized) {
+            result = inner;
+            resultInitialized = true;
+        }
+        else {
+            EvalAddExtInPlace(result, inner);
+        }
+    }
+
+    result = cc->KeySwitchDown(result);
+    if (firstInitialized)
+        result->GetElements()[0] += first;
     return result;
 }
 
