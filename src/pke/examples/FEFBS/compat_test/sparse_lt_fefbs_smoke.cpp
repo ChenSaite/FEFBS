@@ -73,11 +73,15 @@ int main(int argc, char* argv[]) {
               << " q_towers=" << inputQTowers
               << " composite_degree=" << compositeDegree
               << " precompute_L=" << inputL << std::endl;
+    ConstCiphertext<DCRTPoly> constInput = ctxt;
     auto sparseIdentity = scheme->EvalLinearTransformPrecomputeSparse(
         *cc, diagonals, diagonalIndices, 1, 1.0, inputL);
-
-    ConstCiphertext<DCRTPoly> constInput = ctxt;
-    auto afterLt = scheme->EvalLinearTransformSparse(sparseIdentity, constInput, diagonalIndices, 1);
+    auto sparseIdentityPlan = scheme->CompileSparseLinearTransform(
+        sparseIdentity, diagonalIndices, slots, 1, cc->GetCyclotomicOrder());
+    const auto& sparseIdentityKeys = scheme->GetSparseLinearTransformRotationIndices(*sparseIdentityPlan);
+    if (!sparseIdentityKeys.empty())
+        cc->EvalRotateKeyGen(keyPair.secretKey, sparseIdentityKeys);
+    auto afterLt = scheme->EvalLinearTransformSparseCompiled(*sparseIdentityPlan, constInput);
 
     auto coeffs = LoadCoeffs(coeffFile);
     auto afterFefbs = cc->EvalFEFuncBootstrap(afterLt, coeffs);
@@ -91,11 +95,16 @@ int main(int argc, char* argv[]) {
               << " q_towers=" << afterFefbsQTowers
               << " composite_degree=" << compositeDegree
               << " precompute_L=" << afterFefbsL << std::endl;
+    ConstCiphertext<DCRTPoly> constAfterFefbs = afterFefbs;
     auto sparseIdentityAfterFefbs = scheme->EvalLinearTransformPrecomputeSparse(
         *cc, diagonals, diagonalIndices, 1, 1.0, afterFefbsL);
-
-    ConstCiphertext<DCRTPoly> constAfterFefbs = afterFefbs;
-    auto afterSecondLt = scheme->EvalLinearTransformSparse(sparseIdentityAfterFefbs, constAfterFefbs, diagonalIndices, 1);
+    auto sparseIdentityAfterFefbsPlan = scheme->CompileSparseLinearTransform(
+        sparseIdentityAfterFefbs, diagonalIndices, slots, 1, cc->GetCyclotomicOrder());
+    const auto& sparseIdentityAfterFefbsKeys =
+        scheme->GetSparseLinearTransformRotationIndices(*sparseIdentityAfterFefbsPlan);
+    if (!sparseIdentityAfterFefbsKeys.empty())
+        cc->EvalRotateKeyGen(keyPair.secretKey, sparseIdentityAfterFefbsKeys);
+    auto afterSecondLt = scheme->EvalLinearTransformSparseCompiled(*sparseIdentityAfterFefbsPlan, constAfterFefbs);
 
     Plaintext result;
     cc->Decrypt(keyPair.secretKey, afterSecondLt, &result);

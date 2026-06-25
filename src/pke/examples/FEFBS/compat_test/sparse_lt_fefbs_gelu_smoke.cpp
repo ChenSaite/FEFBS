@@ -68,7 +68,6 @@ int main(int argc, char* argv[]) {
     cc->EvalFEFuncBootstrapSetup(levelBudget, bsgsDim, slots);
     auto keyPair = cc->KeyGen();
     cc->EvalMultKeyGen(keyPair.secretKey);
-    cc->EvalRotateKeyGen(keyPair.secretKey, {1});
     cc->EvalBootstrapKeyGen(keyPair.secretKey, slots);
 
     auto scheme = std::dynamic_pointer_cast<SchemeCKKSRNS>(cc->GetScheme());
@@ -98,7 +97,12 @@ int main(int argc, char* argv[]) {
     ConstCiphertext<DCRTPoly> constInput = ctxt;
     auto firstLtPrecompute = scheme->EvalLinearTransformPrecomputeSparse(
         *cc, firstDiagonals, diagonalIndices, 1, 1.0, LevelForCiphertext(cc, constInput));
-    auto afterFirstLt = scheme->EvalLinearTransformSparse(firstLtPrecompute, constInput, diagonalIndices, 1);
+    auto firstLtPlan = scheme->CompileSparseLinearTransform(
+        firstLtPrecompute, diagonalIndices, slots, 1, cc->GetCyclotomicOrder());
+    const auto& firstLtKeys = scheme->GetSparseLinearTransformRotationIndices(*firstLtPlan);
+    if (!firstLtKeys.empty())
+        cc->EvalRotateKeyGen(keyPair.secretKey, firstLtKeys);
+    auto afterFirstLt = scheme->EvalLinearTransformSparseCompiled(*firstLtPlan, constInput);
 
     auto coeffs = LoadCoeffs(coeffFile);
     auto afterGeluFefbs = cc->EvalFEFuncBootstrap(afterFirstLt, coeffs);
@@ -106,7 +110,12 @@ int main(int argc, char* argv[]) {
     ConstCiphertext<DCRTPoly> constAfterGelu = afterGeluFefbs;
     auto secondLtPrecompute = scheme->EvalLinearTransformPrecomputeSparse(
         *cc, secondDiagonals, diagonalIndices, 1, 1.0, LevelForCiphertext(cc, constAfterGelu));
-    auto resultCtxt = scheme->EvalLinearTransformSparse(secondLtPrecompute, constAfterGelu, diagonalIndices, 1);
+    auto secondLtPlan = scheme->CompileSparseLinearTransform(
+        secondLtPrecompute, diagonalIndices, slots, 1, cc->GetCyclotomicOrder());
+    const auto& secondLtKeys = scheme->GetSparseLinearTransformRotationIndices(*secondLtPlan);
+    if (!secondLtKeys.empty())
+        cc->EvalRotateKeyGen(keyPair.secretKey, secondLtKeys);
+    auto resultCtxt = scheme->EvalLinearTransformSparseCompiled(*secondLtPlan, constAfterGelu);
 
     Plaintext result;
     cc->Decrypt(keyPair.secretKey, resultCtxt, &result);

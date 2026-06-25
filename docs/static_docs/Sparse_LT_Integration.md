@@ -22,6 +22,9 @@ OpenFHE bootstrapping LT schedule.
   legacy evaluator parity.
 - Added fixed sparse LT benchmark fixtures for AlexNet and small-model
   regression patterns.
+- Switched the FEFBS compatibility smoke tests to use the compiled sparse LT
+  API before and after functional bootstrapping, with rotation keys discovered
+  from each compiled plan.
 
 ## Deliberately not included
 
@@ -42,6 +45,13 @@ Run the fixed sparse LT benchmark set:
 
 ```bash
 scripts/run_sparse_lt_benchmarks.sh 5
+```
+
+Run the FEFBS integration smoke tests:
+
+```bash
+/tmp/openfhe-sparse-lt-redesign-build/bin/examples/pke/sparse_lt_fefbs_smoke /tmp/openfhe-sparse-lt-redesign/coeffs/bootcoeff.txt
+/tmp/openfhe-sparse-lt-redesign-build/bin/examples/pke/sparse_lt_fefbs_gelu_smoke /tmp/openfhe-sparse-lt-redesign/coeffs/gelucoeff.txt
 ```
 
 Final benchmark snapshot from this branch:
