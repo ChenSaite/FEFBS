@@ -53,6 +53,31 @@
  */
 namespace lbcrypto {
 
+struct SparseLTCompiledGroup {
+    uint32_t giantRotation{0};
+    uint32_t automorphismIndex{0};
+    std::vector<uint32_t> positions;
+};
+
+// Resident sparse-LT execution plan.  Plaintexts are encoded during compile,
+// exactly as in the bootstrap LT precomputation path; evaluation never
+// re-encodes diagonals.
+struct CompiledSparseLinearTransform {
+    std::vector<ReadOnlyPlaintext> plaintexts;
+    std::vector<DCRTPoly> plaintextElements;
+    std::vector<int32_t> diagonalIndices;
+    std::vector<uint32_t> babyRotations;
+    std::vector<int32_t> rotationIndices;
+    std::vector<uint32_t> hornerGiantRotations;
+    // Indexed by diagonal position.  The value is an index into
+    // babyRotations; zero denotes the unrotated, hoisted ciphertext.
+    std::vector<uint32_t> babyRotationOffsets;
+    std::vector<SparseLTCompiledGroup> groups;
+    uint32_t slots{0};
+    uint32_t babyStep{0};
+    bool useHornerGiantAccumulation{false};
+};
+
 class CKKSBootstrapPrecom {
 public:
     CKKSBootstrapPrecom() = default;
@@ -237,7 +262,11 @@ public:
         const CryptoContextImpl<DCRTPoly>& cc,
         const std::vector<std::vector<std::complex<double>>>& diagonals,
         const std::vector<int32_t>& diagonalIndices, uint32_t dim1,
-        double scale = 1., uint32_t L = 0) const;
+        double scale = 1., uint32_t L = 0, double plaintextScalingFactor = 0.0) const;
+
+    std::shared_ptr<const CompiledSparseLinearTransform> CompileSparseLinearTransform(
+        const std::vector<ReadOnlyPlaintext>& plaintexts, const std::vector<int32_t>& diagonalIndices,
+        uint32_t slots, uint32_t dim1 = 0, uint32_t cyclotomicOrder = 0) const;
 
     std::vector<ReadOnlyPlaintext> EvalLinearTransformPrecompute(
         const CryptoContextImpl<DCRTPoly>& cc, const std::vector<std::vector<std::complex<double>>>& A,
@@ -274,6 +303,14 @@ public:
         const std::vector<ReadOnlyPlaintext>& A,
         ConstCiphertext<DCRTPoly>& ct,
         const std::vector<int32_t>& diagonalIndices, uint32_t dim1) const;
+
+    Ciphertext<DCRTPoly> EvalLinearTransformSparseCompiled(
+        const CompiledSparseLinearTransform& compiled, ConstCiphertext<DCRTPoly>& ct) const;
+
+    const std::vector<int32_t>& GetSparseLinearTransformRotationIndices(
+        const CompiledSparseLinearTransform& compiled) const {
+        return compiled.rotationIndices;
+    }
 
     Ciphertext<DCRTPoly> EvalCoeffsToSlots(const std::vector<std::vector<ReadOnlyPlaintext>>& A,
                                            ConstCiphertext<DCRTPoly>& ctxt) const;
@@ -357,9 +394,18 @@ private:
 
     Plaintext MakeAuxPlaintext(const CryptoContextImpl<DCRTPoly>& cc, const std::shared_ptr<ParmType> params,
                                const std::vector<std::complex<double>>& value, size_t noiseScaleDeg, uint32_t level,
-                               uint32_t slots) const;
+                               uint32_t slots, double scalingFactor = 0.0) const;
 
     Ciphertext<DCRTPoly> EvalMultExt(ConstCiphertext<DCRTPoly> ciphertext, ConstPlaintext plaintext) const;
+
+    Ciphertext<DCRTPoly> EvalMultExt(ConstCiphertext<DCRTPoly> ciphertext, const DCRTPoly& plaintextElement,
+                                     ConstPlaintext plaintext) const;
+
+    void EvalMultExtAddInPlace(Ciphertext<DCRTPoly>& accumulator, ConstCiphertext<DCRTPoly> ciphertext,
+                               ConstPlaintext plaintext) const;
+
+    void EvalMultExtAddInPlace(Ciphertext<DCRTPoly>& accumulator, ConstCiphertext<DCRTPoly> ciphertext,
+                               const DCRTPoly& plaintextElement) const;
 
     void EvalAddExtInPlace(Ciphertext<DCRTPoly>& ciphertext1, ConstCiphertext<DCRTPoly> ciphertext2) const;
 

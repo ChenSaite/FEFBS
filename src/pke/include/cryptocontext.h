@@ -461,6 +461,52 @@ protected:
         return p;
     }
 
+    // Orion requires a plaintext encoded at the concrete q_j of the input
+    // ciphertext for FIXEDMANUAL ciphertext/plaintext multiplication.  The
+    // upstream 1.4 API exposes only the context-default scale; keep the
+    // explicit-scale variant local to this FEFBS fork so that scale alignment
+    // is represented by the encoding rather than Python metadata.
+    virtual Plaintext MakeCKKSPackedPlaintextAtScaleInternal(
+        const std::vector<std::complex<double>>& value, double scalingFactor,
+        size_t noiseScaleDeg, uint32_t level, const std::shared_ptr<ParmType> params,
+        uint32_t slots) const {
+        VerifyCKKSScheme(__func__);
+        if (!(scalingFactor > 0.0))
+            OPENFHE_THROW("CKKS plaintext scaling factor must be positive");
+
+        const auto cryptoParams = std::dynamic_pointer_cast<CryptoParametersRNS>(GetCryptoParameters());
+        if (level > 0) {
+            const size_t numModuli = cryptoParams->GetElementParams()->GetParams().size();
+            if (level >= numModuli) {
+                OPENFHE_THROW("The CKKS plaintext level exceeds the modulus chain");
+            }
+        }
+
+        std::shared_ptr<ILDCRTParams<DCRTPoly::Integer>> elemParamsPtr = params;
+        if (elemParamsPtr == nullptr) {
+            if (level != 0) {
+                ILDCRTParams<DCRTPoly::Integer> elemParams = *(cryptoParams->GetElementParams());
+                for (uint32_t i = 0; i < level; ++i)
+                    elemParams.PopLastParam();
+                elemParamsPtr = std::make_shared<ILDCRTParams<DCRTPoly::Integer>>(elemParams);
+            }
+            else {
+                elemParamsPtr = cryptoParams->GetElementParams();
+            }
+        }
+
+        const uint32_t ringDim = elemParamsPtr->GetRingDimension();
+        if (value.size() > ringDim / 2) {
+            OPENFHE_THROW("The CKKS plaintext vector is larger than ringDim/2");
+        }
+
+        Plaintext p = Plaintext(std::make_shared<CKKSPackedEncoding>(
+            elemParamsPtr, this->GetEncodingParams(), value, noiseScaleDeg, level,
+            scalingFactor, slots, this->GetCKKSDataType()));
+        p->Encode();
+        return p;
+    }
+
     /**
     * @brief Getter for composite degree of the current scheme crypto context.
     * @return integer value corresponding to composite degree
@@ -1214,6 +1260,33 @@ public:
                        [](double da) { return std::complex<double>(da); });
 
         return MakeCKKSPackedPlaintextInternal(complexValue, noiseScaleDeg, level, params, slots);
+    }
+
+    /** Encodes complex CKKS values using an explicit scaling factor. */
+    Plaintext MakeCKKSPackedPlaintextAtScale(
+        const std::vector<std::complex<double>>& value, double scalingFactor,
+        size_t noiseScaleDeg = 1, uint32_t level = 0,
+        const std::shared_ptr<ParmType> params = nullptr, uint32_t slots = 0) const {
+        VerifyCKKSScheme(__func__);
+        if (value.empty())
+            OPENFHE_THROW("Cannot encode an empty value vector");
+        return MakeCKKSPackedPlaintextAtScaleInternal(
+            value, scalingFactor, noiseScaleDeg, level, params, slots);
+    }
+
+    /** Encodes real CKKS values using an explicit scaling factor. */
+    Plaintext MakeCKKSPackedPlaintextAtScale(
+        const std::vector<double>& value, double scalingFactor,
+        size_t noiseScaleDeg = 1, uint32_t level = 0,
+        const std::shared_ptr<ParmType> params = nullptr, uint32_t slots = 0) const {
+        VerifyCKKSScheme(__func__);
+        if (value.empty())
+            OPENFHE_THROW("Cannot encode an empty value vector");
+        std::vector<std::complex<double>> complexValue(value.size());
+        std::transform(value.begin(), value.end(), complexValue.begin(),
+                       [](double input) { return std::complex<double>(input); });
+        return MakeCKKSPackedPlaintextAtScaleInternal(
+            complexValue, scalingFactor, noiseScaleDeg, level, params, slots);
     }
 
     /**

@@ -83,13 +83,13 @@ public:
         const CryptoContextImpl<DCRTPoly>& cc,
         const std::vector<std::vector<std::complex<double>>>& diagonals,
         const std::vector<int32_t>& diagonalIndices, uint32_t dim1,
-        double scale = 1., uint32_t L = 0) const {
+        double scale = 1., uint32_t L = 0, double plaintextScalingFactor = 0.0) const {
         auto fhe = std::dynamic_pointer_cast<FHECKKSRNS>(this->m_FHE);
         if (!fhe) {
             OPENFHE_THROW("CKKS FHE features are not enabled");
         }
         return fhe->EvalLinearTransformPrecomputeSparse(
-            cc, diagonals, diagonalIndices, dim1, scale, L);
+            cc, diagonals, diagonalIndices, dim1, scale, L, plaintextScalingFactor);
     }
 
     Ciphertext<DCRTPoly> EvalLinearTransformSparse(
@@ -102,6 +102,35 @@ public:
         }
         return fhe->EvalLinearTransformSparse(precomputed, ciphertext,
                                               diagonalIndices, dim1);
+    }
+
+    std::shared_ptr<const CompiledSparseLinearTransform> CompileSparseLinearTransform(
+        const std::vector<ReadOnlyPlaintext>& precomputed,
+        const std::vector<int32_t>& diagonalIndices, uint32_t slots, uint32_t dim1 = 0,
+        uint32_t cyclotomicOrder = 0) const {
+        auto fhe = std::dynamic_pointer_cast<FHECKKSRNS>(this->m_FHE);
+        if (!fhe) {
+            OPENFHE_THROW("CKKS FHE features are not enabled");
+        }
+        return fhe->CompileSparseLinearTransform(precomputed, diagonalIndices, slots, dim1, cyclotomicOrder);
+    }
+
+    Ciphertext<DCRTPoly> EvalLinearTransformSparseCompiled(
+        const CompiledSparseLinearTransform& compiled, ConstCiphertext<DCRTPoly>& ciphertext) const {
+        auto fhe = std::dynamic_pointer_cast<FHECKKSRNS>(this->m_FHE);
+        if (!fhe) {
+            OPENFHE_THROW("CKKS FHE features are not enabled");
+        }
+        return fhe->EvalLinearTransformSparseCompiled(compiled, ciphertext);
+    }
+
+    const std::vector<int32_t>& GetSparseLinearTransformRotationIndices(
+        const CompiledSparseLinearTransform& compiled) const {
+        auto fhe = std::dynamic_pointer_cast<FHECKKSRNS>(this->m_FHE);
+        if (!fhe) {
+            OPENFHE_THROW("CKKS FHE features are not enabled");
+        }
+        return fhe->GetSparseLinearTransformRotationIndices(compiled);
     }
 
     void Enable(PKESchemeFeature feature) override;

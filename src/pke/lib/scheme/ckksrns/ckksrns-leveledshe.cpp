@@ -589,6 +589,61 @@ Ciphertext<DCRTPoly> LeveledSHECKKSRNS::EvalFastRotationExt(
     return result;
 }
 
+void LeveledSHECKKSRNS::EvalFastRotationExtAddInPlace(
+    Ciphertext<DCRTPoly>& accumulator, bool& accumulatorInitialized, ConstCiphertext<DCRTPoly>& ciphertext,
+    uint32_t index, uint32_t automorphismIndex, const std::shared_ptr<std::vector<DCRTPoly>> digits, bool addFirst,
+    const std::map<uint32_t, EvalKey<DCRTPoly>>& evalKeys, std::vector<uint32_t>& automorphismMap) const {
+    const auto cc = ciphertext->GetCryptoContext();
+    const auto cryptoParams = std::dynamic_pointer_cast<CryptoParametersCKKSRNS>(ciphertext->GetCryptoParameters());
+
+    const uint32_t N = cryptoParams->GetElementParams()->GetRingDimension();
+
+    const auto evalKeyIterator = evalKeys.find(automorphismIndex);
+    if (evalKeyIterator == evalKeys.end()) {
+        OPENFHE_THROW("EvalKey for index [" + std::to_string(automorphismIndex) + "] is not found.");
+    }
+
+    const auto& cv      = ciphertext->GetElements();
+    const auto paramsQl = cv[0].GetParams();
+    auto cTilda = cc->GetScheme()->EvalFastKeySwitchCoreExt(digits, evalKeyIterator->second, paramsQl);
+
+    if (addFirst) {
+        const auto paramsQlP = (*cTilda)[0].GetParams();
+        const size_t sizeQl  = paramsQl->GetParams().size();
+        DCRTPoly psiC0(paramsQlP, Format::EVALUATION, true);
+        auto cMult = ciphertext->GetElements()[0].TimesNoCheck(cryptoParams->GetPModq());
+        for (uint32_t i = 0; i < sizeQl; ++i)
+            psiC0.SetElementAtIndex(i, std::move(cMult.GetElementAtIndex(i)));
+        (*cTilda)[0] += psiC0;
+    }
+
+    if (automorphismMap.size() != N)
+        automorphismMap.resize(N);
+    if (!accumulatorInitialized) {
+        accumulator = ciphertext->CloneEmpty();
+        auto rotated0 = (*cTilda)[0].AutomorphismTransform(automorphismIndex, automorphismMap);
+        auto rotated1 = (*cTilda)[1].AutomorphismTransform(automorphismIndex, automorphismMap);
+        std::vector<DCRTPoly> elements;
+        elements.reserve(2);
+        elements.push_back(std::move(rotated0));
+        elements.push_back(std::move(rotated1));
+        accumulator->SetElements(std::move(elements));
+        accumulatorInitialized = true;
+        return;
+    }
+
+    auto& accElements = accumulator->GetElements();
+    auto& acc0Towers = accElements[0].GetAllElements();
+    auto& acc1Towers = accElements[1].GetAllElements();
+    const auto& ct0Towers = (*cTilda)[0].GetAllElements();
+    const auto& ct1Towers = (*cTilda)[1].GetAllElements();
+    const size_t towers = acc0Towers.size();
+    for (size_t tower = 0; tower < towers; ++tower) {
+        acc0Towers[tower] += ct0Towers[tower].AutomorphismTransform(automorphismIndex, automorphismMap);
+        acc1Towers[tower] += ct1Towers[tower].AutomorphismTransform(automorphismIndex, automorphismMap);
+    }
+}
+
 Ciphertext<DCRTPoly> LeveledSHECKKSRNS::MultByInteger(ConstCiphertext<DCRTPoly>& ciphertext, uint64_t integer) const {
     const std::vector<DCRTPoly>& cv = ciphertext->GetElements();
 

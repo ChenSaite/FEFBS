@@ -127,6 +127,13 @@ public:
                                              const std::shared_ptr<std::vector<DCRTPoly>> digits, bool addFirst,
                                              const std::map<uint32_t, EvalKey<DCRTPoly>>& evalKeys) const override;
 
+    void EvalFastRotationExtAddInPlace(Ciphertext<DCRTPoly>& accumulator, bool& accumulatorInitialized,
+                                       ConstCiphertext<DCRTPoly>& ciphertext, uint32_t index,
+                                       uint32_t automorphismIndex,
+                                       const std::shared_ptr<std::vector<DCRTPoly>> digits, bool addFirst,
+                                       const std::map<uint32_t, EvalKey<DCRTPoly>>& evalKeys,
+                                       std::vector<uint32_t>& automorphismMap) const;
+
     uint32_t FindAutomorphismIndex(uint32_t index, uint32_t m) const override;
 
     /////////////////////////////////////

@@ -38,6 +38,7 @@
 #include "math/dftransform.h"
 #include "scheme/ckksrns/ckksrns-cryptoparameters.h"
 #include "scheme/ckksrns/ckksrns-fhe.h"
+#include "scheme/ckksrns/ckksrns-leveledshe.h"
 #include "scheme/ckksrns/ckksrns-utils.h"
 #include "schemebase/base-scheme.h"
 #include "utils/exception.h"
@@ -45,8 +46,10 @@
 #include "utils/utilities.h"
 
 #include <algorithm>
+#include <chrono>
 #include <cmath>
 #include <functional>
+#include <iostream>
 #include <limits>
 #include <map>
 #include <memory>
@@ -55,6 +58,7 @@
 #endif
 #include <set>
 #include <string>
+#include <tuple>
 #include <utility>
 #include <vector>
 
@@ -77,6 +81,73 @@ double GetBigModulus(const std::shared_ptr<lbcrypto::CryptoParametersCKKSRNS> cr
 }  // namespace
 
 namespace lbcrypto {
+
+namespace {
+
+constexpr size_t kSparseLTMinHornerGiantGroups = 10;
+constexpr size_t kSparseLTGiantGroupWorkWeight = 8;
+
+struct SparseLTBabyStepMetrics {
+    size_t estimatedWork{0};
+    size_t rotationKeyCount{0};
+    size_t giantGroups{0};
+    size_t babyRotations{0};
+    uint32_t candidate{1};
+};
+
+static SparseLTBabyStepMetrics EvaluateSparseLTBabyStep(const std::vector<int32_t>& diagonalIndices, uint32_t slots,
+                                                        uint32_t candidate) {
+    std::set<uint32_t> babyRotations;
+    std::set<uint32_t> giantRotations;
+    for (const auto diagonal : diagonalIndices) {
+        const uint32_t rotation = ReduceRotation(diagonal, slots);
+        const uint32_t baby     = rotation & (candidate - 1);
+        const uint32_t giant    = ((rotation / candidate) * candidate) % slots;
+        if (baby != 0)
+            babyRotations.insert(baby);
+        giantRotations.insert(giant);
+    }
+
+    size_t directGiantKeyCount = 0;
+    for (const auto giant : giantRotations) {
+        if (giant != 0)
+            ++directGiantKeyCount;
+    }
+
+    SparseLTBabyStepMetrics metrics;
+    metrics.babyRotations   = babyRotations.size();
+    metrics.giantGroups     = giantRotations.size();
+    metrics.rotationKeyCount = babyRotations.size() + directGiantKeyCount;
+    metrics.estimatedWork   = babyRotations.size() + kSparseLTGiantGroupWorkWeight * giantRotations.size();
+    metrics.candidate       = candidate;
+    return metrics;
+}
+
+}  // namespace
+
+static uint32_t SelectSparseLTBabyStep(const std::vector<int32_t>& diagonalIndices, uint32_t slots, uint32_t dim1) {
+    if (dim1 != 0)
+        return dim1;
+
+    auto selectedMetrics = EvaluateSparseLTBabyStep(diagonalIndices, slots, 1);
+    uint32_t bStep       = 1;
+    for (uint32_t candidate = 2; candidate <= slots; candidate <<= 1) {
+        const auto metrics = EvaluateSparseLTBabyStep(diagonalIndices, slots, candidate);
+        const auto candidateCost =
+            std::make_tuple(metrics.estimatedWork, metrics.rotationKeyCount, metrics.giantGroups,
+                            metrics.babyRotations, metrics.candidate);
+        const auto selectedCost =
+            std::make_tuple(selectedMetrics.estimatedWork, selectedMetrics.rotationKeyCount,
+                            selectedMetrics.giantGroups, selectedMetrics.babyRotations, selectedMetrics.candidate);
+        if (candidateCost < selectedCost) {
+            selectedMetrics = metrics;
+            bStep           = candidate;
+        }
+        if (candidate > slots / 2)
+            break;
+    }
+    return bStep;
+}
 
 //------------------------------------------------------------------------------
 // Bootstrap Wrapper
@@ -1326,7 +1397,7 @@ std::vector<ReadOnlyPlaintext> FHECKKSRNS::EvalLinearTransformPrecomputeSparse(
     const CryptoContextImpl<DCRTPoly>& cc,
     const std::vector<std::vector<std::complex<double>>>& diagonals,
     const std::vector<int32_t>& diagonalIndices, uint32_t dim1, double scale,
-    uint32_t L) const {
+    uint32_t L, double plaintextScalingFactor) const {
     if (diagonals.size() != diagonalIndices.size())
         OPENFHE_THROW("The sparse diagonals passed to EvalLinearTransformPrecomputeSparse do not match the diagonal index list");
     if (diagonals.empty())
@@ -1362,7 +1433,9 @@ std::vector<ReadOnlyPlaintext> FHECKKSRNS::EvalLinearTransformPrecomputeSparse(
     }
     auto elementParamsPtr = std::make_shared<ILDCRTParams<DCRTPoly::Integer>>(cc.GetCyclotomicOrder(), moduli, roots);
 
-    uint32_t bStep = (dim1 == 0) ? static_cast<uint32_t>(std::ceil(std::sqrt(slots))) : dim1;
+    uint32_t bStep = SelectSparseLTBabyStep(diagonalIndices, slots, dim1);
+    if ((bStep & (bStep - 1)) != 0 || bStep > slots)
+        OPENFHE_THROW("EvalLinearTransformPrecomputeSparse requires dim1 to be a power of two no larger than slots");
     std::vector<ReadOnlyPlaintext> result(diagonals.size());
 
 #if !defined(__MINGW32__) && !defined(__MINGW64__)
@@ -1377,7 +1450,7 @@ std::vector<ReadOnlyPlaintext> FHECKKSRNS::EvalLinearTransformPrecomputeSparse(
 
         result[position] =
             MakeAuxPlaintext(cc, elementParamsPtr, Rotate(diag, -static_cast<int32_t>(giant)), 1, towersToDrop,
-                             diag.size());
+                             diag.size(), plaintextScalingFactor);
     }
 
     return result;
@@ -1894,7 +1967,9 @@ Ciphertext<DCRTPoly> FHECKKSRNS::EvalLinearTransformSparse(
     uint32_t M = cc->GetCyclotomicOrder();
     uint32_t N = cc->GetRingDimension();
     uint32_t slots = ct->GetSlots();
-    uint32_t bStep = (dim1 == 0) ? static_cast<uint32_t>(std::ceil(std::sqrt(slots))) : dim1;
+    uint32_t bStep = SelectSparseLTBabyStep(diagonalIndices, slots, dim1);
+    if ((bStep & (bStep - 1)) != 0 || bStep > slots)
+        OPENFHE_THROW("EvalLinearTransformSparse requires dim1 to be a power of two no larger than slots");
 
     auto digits = cc->EvalFastRotationPrecompute(ct);
     auto baseExt = cc->KeySwitchExt(ct, true);
@@ -1980,6 +2055,210 @@ Ciphertext<DCRTPoly> FHECKKSRNS::EvalLinearTransformSparse(
     result = cc->KeySwitchDown(result);
     if (firstInitialized)
         result->GetElements()[0] += first;
+    return result;
+}
+
+std::shared_ptr<const CompiledSparseLinearTransform> FHECKKSRNS::CompileSparseLinearTransform(
+    const std::vector<ReadOnlyPlaintext>& plaintexts, const std::vector<int32_t>& diagonalIndices,
+    uint32_t slots, uint32_t dim1, uint32_t cyclotomicOrder) const {
+    if (plaintexts.size() != diagonalIndices.size())
+        OPENFHE_THROW("CompileSparseLinearTransform requires matching plaintext and diagonal-index counts");
+    if (plaintexts.empty() || slots == 0)
+        OPENFHE_THROW("CompileSparseLinearTransform requires non-empty diagonals and slots");
+
+    // The sparse evaluator uses a bit split, so dim1/babyStep must be a power
+    // of two.  For dim1=0 follow the boot-LT BSGS shape, but choose a split
+    // that keeps giant-group work small for sparse CNN layers; rotation-key
+    // count remains the first tie-breaker.
+    uint32_t bStep = SelectSparseLTBabyStep(diagonalIndices, slots, dim1);
+    if ((bStep & (bStep - 1)) != 0 || bStep > slots)
+        OPENFHE_THROW("CompileSparseLinearTransform requires dim1 to be a power of two no larger than slots");
+
+    auto compiled              = std::make_shared<CompiledSparseLinearTransform>();
+    compiled->plaintexts       = plaintexts;
+    compiled->plaintextElements.reserve(plaintexts.size());
+    for (const auto& plaintext : plaintexts) {
+        auto element = plaintext->GetElement<DCRTPoly>();
+        element.SetFormat(Format::EVALUATION);
+        compiled->plaintextElements.push_back(std::move(element));
+    }
+    compiled->diagonalIndices  = diagonalIndices;
+    compiled->slots            = slots;
+    compiled->babyStep         = bStep;
+    compiled->babyRotationOffsets.resize(diagonalIndices.size());
+
+    std::map<uint32_t, uint32_t> babyOffsets;
+    std::map<uint32_t, std::vector<uint32_t>> giantToPositions;
+    std::set<int32_t> rotationIndices;
+    for (uint32_t position = 0; position < diagonalIndices.size(); ++position) {
+        const uint32_t rotation = ReduceRotation(diagonalIndices[position], slots);
+        const uint32_t baby     = rotation & (bStep - 1);
+        const uint32_t giant    = ((rotation / bStep) * bStep) % slots;
+
+        uint32_t offset = 0;
+        if (baby != 0) {
+            auto [it, inserted] = babyOffsets.emplace(baby, compiled->babyRotations.size());
+            if (inserted)
+                compiled->babyRotations.push_back(baby);
+            offset = it->second + 1;
+            rotationIndices.insert(static_cast<int32_t>(baby));
+        }
+        compiled->babyRotationOffsets[position] = offset;
+        giantToPositions[giant].push_back(position);
+        if (giant != 0)
+            rotationIndices.insert(static_cast<int32_t>(giant));
+    }
+    compiled->rotationIndices.assign(rotationIndices.begin(), rotationIndices.end());
+
+    compiled->groups.reserve(giantToPositions.size());
+    for (auto& [giant, positions] : giantToPositions) {
+        const uint32_t autoIndex = (giant != 0 && cyclotomicOrder != 0) ?
+                                       FindAutomorphismIndex2nComplex(giant, cyclotomicOrder) :
+                                       0;
+        compiled->groups.push_back({giant, autoIndex, std::move(positions)});
+    }
+    if (compiled->groups.size() > 1) {
+        std::set<uint32_t> directGiantRotations;
+        for (const auto& group : compiled->groups) {
+            if (group.giantRotation != 0)
+                directGiantRotations.insert(group.giantRotation);
+        }
+
+        std::set<uint32_t> hornerGiantRotations;
+        for (size_t i = compiled->groups.size() - 1; i > 0; --i) {
+            const uint32_t stride = ReduceRotation(static_cast<int32_t>(compiled->groups[i].giantRotation) -
+                                                       static_cast<int32_t>(compiled->groups[i - 1].giantRotation),
+                                                   slots);
+            if (stride != 0)
+                hornerGiantRotations.insert(stride);
+        }
+        if (compiled->groups.front().giantRotation != 0)
+            hornerGiantRotations.insert(compiled->groups.front().giantRotation);
+
+        if (compiled->groups.size() >= kSparseLTMinHornerGiantGroups && !hornerGiantRotations.empty() &&
+            hornerGiantRotations.size() < directGiantRotations.size()) {
+            compiled->useHornerGiantAccumulation = true;
+            compiled->hornerGiantRotations.assign(hornerGiantRotations.begin(), hornerGiantRotations.end());
+
+            std::set<int32_t> hornerRotationIndices;
+            for (const auto baby : compiled->babyRotations)
+                hornerRotationIndices.insert(static_cast<int32_t>(baby));
+            for (const auto giant : compiled->hornerGiantRotations)
+                hornerRotationIndices.insert(static_cast<int32_t>(giant));
+            compiled->rotationIndices.assign(hornerRotationIndices.begin(), hornerRotationIndices.end());
+        }
+    }
+    return compiled;
+}
+
+Ciphertext<DCRTPoly> FHECKKSRNS::EvalLinearTransformSparseCompiled(
+    const CompiledSparseLinearTransform& compiled, ConstCiphertext<DCRTPoly>& ct) const {
+    if (compiled.plaintexts.empty() || compiled.plaintexts.size() != compiled.diagonalIndices.size())
+        OPENFHE_THROW("EvalLinearTransformSparseCompiled received an invalid plan");
+    if (ct->GetSlots() != compiled.slots)
+        OPENFHE_THROW("EvalLinearTransformSparseCompiled ciphertext slots do not match the compiled plan");
+
+    const bool usePlaintextElementCache = compiled.plaintextElements.size() == compiled.plaintexts.size();
+
+    auto cc          = ct->GetCryptoContext();
+    const uint32_t M = cc->GetCyclotomicOrder();
+    const uint32_t N = cc->GetRingDimension();
+    const auto& evalAutomorphismKeys = cc->GetEvalAutomorphismKeyMap(ct->GetKeyTag());
+    const LeveledSHECKKSRNS leveledSHE;
+    auto digits      = cc->EvalFastRotationPrecompute(ct);
+    auto baseExt     = cc->KeySwitchExt(ct, true);
+
+    std::vector<Ciphertext<DCRTPoly>> fastRotations(compiled.babyRotations.size());
+    // This mirrors the bootstrap LT's parallel hoisted-rotation phase.  Keep
+    // the zero-rotation case serial: OpenMP rejects num_threads(0).
+    if (!compiled.babyRotations.empty()) {
+#pragma omp parallel for num_threads(OpenFHEParallelControls.GetThreadLimit(compiled.babyRotations.size()))
+        for (size_t i = 0; i < compiled.babyRotations.size(); ++i)
+            fastRotations[i] = cc->EvalFastRotationExt(ct, compiled.babyRotations[i], digits, true);
+    }
+
+    auto buildInner = [&](const SparseLTCompiledGroup& group) {
+        Ciphertext<DCRTPoly> inner;
+        bool innerInitialized = false;
+        for (const uint32_t position : group.positions) {
+            const uint32_t offset = compiled.babyRotationOffsets[position];
+            const auto& rotated   = offset == 0 ? baseExt : fastRotations[offset - 1];
+            if (!innerInitialized) {
+                auto product = usePlaintextElementCache ?
+                                   EvalMultExt(rotated, compiled.plaintextElements[position], compiled.plaintexts[position]) :
+                                   EvalMultExt(rotated, compiled.plaintexts[position]);
+                inner = std::move(product);
+                innerInitialized = true;
+            }
+            else {
+                if (usePlaintextElementCache)
+                    EvalMultExtAddInPlace(inner, rotated, compiled.plaintextElements[position]);
+                else
+                    EvalMultExtAddInPlace(inner, rotated, compiled.plaintexts[position]);
+            }
+        }
+        return inner;
+    };
+
+    if (compiled.useHornerGiantAccumulation) {
+        Ciphertext<DCRTPoly> outer;
+        bool outerInitialized = false;
+        for (size_t groupIndex = compiled.groups.size(); groupIndex-- > 0;) {
+            auto inner = buildInner(compiled.groups[groupIndex]);
+            if (!outerInitialized) {
+                outer = std::move(inner);
+                outerInitialized = true;
+                continue;
+            }
+
+            const uint32_t stride = ReduceRotation(static_cast<int32_t>(compiled.groups[groupIndex + 1].giantRotation) -
+                                                       static_cast<int32_t>(compiled.groups[groupIndex].giantRotation),
+                                                   compiled.slots);
+            if (stride != 0) {
+                auto outerDown   = cc->KeySwitchDown(outer);
+                auto outerDigits = cc->EvalFastRotationPrecompute(outerDown);
+                outer            = cc->EvalFastRotationExt(outerDown, stride, outerDigits, true);
+            }
+            EvalAddExtInPlace(outer, inner);
+        }
+
+        const uint32_t finalStride = compiled.groups.front().giantRotation;
+        if (finalStride != 0) {
+            auto outerDown   = cc->KeySwitchDown(outer);
+            auto outerDigits = cc->EvalFastRotationPrecompute(outerDown);
+            outer            = cc->EvalFastRotationExt(outerDown, finalStride, outerDigits, true);
+        }
+        return cc->KeySwitchDown(outer);
+    }
+
+    Ciphertext<DCRTPoly> result;
+    bool resultInitialized = false;
+    std::vector<uint32_t> automorphismMap(N);
+    for (const auto& group : compiled.groups) {
+        auto inner = buildInner(group);
+
+        if (group.giantRotation == 0) {
+            if (!resultInitialized) {
+                result = std::move(inner);
+                resultInitialized = true;
+            }
+            else {
+                EvalAddExtInPlace(result, inner);
+            }
+        }
+        else {
+            auto innerDown = cc->KeySwitchDown(inner);
+            const uint32_t autoIndex = group.automorphismIndex != 0 ?
+                                           group.automorphismIndex :
+                                           FindAutomorphismIndex2nComplex(group.giantRotation, M);
+            PrecomputeAutoMap(N, autoIndex, &automorphismMap);
+            auto innerDigits = cc->EvalFastRotationPrecompute(innerDown);
+            leveledSHE.EvalFastRotationExtAddInPlace(result, resultInitialized, innerDown, group.giantRotation,
+                                                     autoIndex, innerDigits, true, evalAutomorphismKeys,
+                                                     automorphismMap);
+        }
+    }
+    result = cc->KeySwitchDown(result);
     return result;
 }
 
@@ -2523,10 +2802,10 @@ void FHECKKSRNS::ApplyDoubleAngleIterations(Ciphertext<DCRTPoly>& ciphertext, ui
 #if NATIVEINT == 128
 Plaintext FHECKKSRNS::MakeAuxPlaintext(const CryptoContextImpl<DCRTPoly>& cc, const std::shared_ptr<ParmType> params,
                                        const std::vector<std::complex<double>>& value, size_t noiseScaleDeg,
-                                       uint32_t level, uint32_t slots) const {
+                                       uint32_t level, uint32_t slots, double scalingFactor) const {
     const auto cryptoParams = std::dynamic_pointer_cast<CryptoParametersCKKSRNS>(cc.GetCryptoParameters());
 
-    double scFact = cryptoParams->GetScalingFactorReal(level);
+    double scFact = (scalingFactor > 0.0) ? scalingFactor : cryptoParams->GetScalingFactorReal(level);
 
     Plaintext p = Plaintext(std::make_shared<CKKSPackedEncoding>(params, cc.GetEncodingParams(), value, noiseScaleDeg,
                                                                  level, scFact, slots, COMPLEX));
@@ -2670,10 +2949,10 @@ Plaintext FHECKKSRNS::MakeAuxPlaintext(const CryptoContextImpl<DCRTPoly>& cc, co
 #else
 Plaintext FHECKKSRNS::MakeAuxPlaintext(const CryptoContextImpl<DCRTPoly>& cc, const std::shared_ptr<ParmType> params,
                                        const std::vector<std::complex<double>>& value, size_t noiseScaleDeg,
-                                       uint32_t level, uint32_t slots) const {
+                                       uint32_t level, uint32_t slots, double scalingFactor) const {
     const auto cryptoParams = std::dynamic_pointer_cast<CryptoParametersCKKSRNS>(cc.GetCryptoParameters());
 
-    double scFact = cryptoParams->GetScalingFactorReal(level);
+    double scFact = (scalingFactor > 0.0) ? scalingFactor : cryptoParams->GetScalingFactorReal(level);
 
     Plaintext p = Plaintext(std::make_shared<CKKSPackedEncoding>(params, cc.GetEncodingParams(), value, noiseScaleDeg,
                                                                  level, scFact, slots, COMPLEX));
@@ -2874,12 +3153,39 @@ Ciphertext<DCRTPoly> FHECKKSRNS::EvalMultExt(ConstCiphertext<DCRTPoly> ciphertex
     auto pt = plaintext->GetElement<DCRTPoly>();
     pt.SetFormat(Format::EVALUATION);
 
-    auto result = ciphertext->Clone();
-    for (auto& c : result->GetElements())
-        c *= pt;
+    return EvalMultExt(ciphertext, pt, plaintext);
+}
+
+Ciphertext<DCRTPoly> FHECKKSRNS::EvalMultExt(ConstCiphertext<DCRTPoly> ciphertext, const DCRTPoly& plaintextElement,
+                                             ConstPlaintext plaintext) const {
+    auto result              = ciphertext->CloneEmpty();
+    const auto& ctElements   = ciphertext->GetElements();
+    const uint32_t numElems  = ctElements.size();
+    std::vector<DCRTPoly> elements;
+    elements.reserve(numElems);
+    for (uint32_t i = 0; i < numElems; ++i)
+        elements.push_back(ctElements[i] * plaintextElement);
+    result->SetElements(std::move(elements));
     result->SetNoiseScaleDeg(result->GetNoiseScaleDeg() + plaintext->GetNoiseScaleDeg());
     result->SetScalingFactor(result->GetScalingFactor() * plaintext->GetScalingFactor());
     return result;
+}
+
+void FHECKKSRNS::EvalMultExtAddInPlace(Ciphertext<DCRTPoly>& accumulator, ConstCiphertext<DCRTPoly> ciphertext,
+                                       ConstPlaintext plaintext) const {
+    auto pt = plaintext->GetElement<DCRTPoly>();
+    pt.SetFormat(Format::EVALUATION);
+
+    EvalMultExtAddInPlace(accumulator, ciphertext, pt);
+}
+
+void FHECKKSRNS::EvalMultExtAddInPlace(Ciphertext<DCRTPoly>& accumulator, ConstCiphertext<DCRTPoly> ciphertext,
+                                       const DCRTPoly& plaintextElement) const {
+    auto& accElements       = accumulator->GetElements();
+    const auto& ctElements  = ciphertext->GetElements();
+    const uint32_t numElems = accElements.size();
+    for (uint32_t i = 0; i < numElems; ++i)
+        accElements[i] += ctElements[i] * plaintextElement;
 }
 
 void FHECKKSRNS::EvalAddExtInPlace(Ciphertext<DCRTPoly>& ciphertext1, ConstCiphertext<DCRTPoly> ciphertext2) const {
